@@ -1,0 +1,5 @@
+*.csv
+main.py
+main2.py
+parcours_page.py
+__pycache__/

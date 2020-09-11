@@ -1,107 +1,101 @@
 import csv
 import time
-import requests
 import re
+import requests
 from bs4 import BeautifulSoup
-from ural.utils import  safe_urlsplit 
+from ural.utils import  safe_urlsplit
+from ural import normalize_url, is_url, ensure_protocol,urls_from_text
+from urllib.parse import urljoin
+htm = 0 
 
-
-def articles(URL,fichier):
+def articles(url):
     """
     Given an echojs news page, this function collect and write specific informations
     about all articles that can be found on this page
     """
+    global htm
     #### collecting the HTML
-    page = requests.get(URL)
-
+    time.sleep(0.3)
+    page = requests.get(url)
     ### parsing the page with BeautifulSoup (getting the html)
-
-    soup = BeautifulSoup(page.content, 'html.parser')
-
-    #selecting the tag object 
-    html = list(soup.children)[1]
-
-    ### html tags
-
-    tags = list(html.children) #head is [1], body is [3]
-    body = tags[3]
-    body2 = list(body)
-
-
-    first_article = body.find('article')
-    articles = [first_article] #l
-    next_articles = body.article.next_siblings #j
-
-    #### --- getting rid of selection noises, only keeping Tag elements
-    for article in next_articles:
-        # type(l[0]) == bs4.Tag
-        if not isinstance(article,type(articles[0])):
-            continue
-        else:
-            articles.append(article)
-
-    articles_page =[]
-
+    soup = BeautifulSoup(page.content, 'lxml')
+    ### collecting articles tags
+    articles = soup.select('article')
+    articles_page = []
+    ### extracting relevant information on those articles
     for article in articles:
-        di = {"TITLE" : "", "LINK" : "", "AUTHOR":"", "nb_of_comments" :"", "up_nb" :" ", "down_nb" :""}
+        di = {"TITLE" : "", "LINK" : "", "AUTHOR":"", "NB_OF_COMMENTS" :"", "UP_NB" :" ", "DOWN_NB" :"","PATH_HTML": "","FILE_URLS_FROM_HTML":""}
         try :
-            di["TITLE"] = article.find("h2").get_text()
+            di["TITLE"] = article.find("h2").get_text().strip()
         except:
-            di["TITLE"] = "none"
+            di["TITLE"] = ""
         try :
-            di["AUTHOR"] = article.find("username").get_text()
+            di["AUTHOR"] = article.find("username").get_text().strip()
         except:
-            di["AUTHOR"] = "none"
+            di["AUTHOR"] = ""
         try :
-            di["LINK"]= article.find("a", {"rel": True})['href']
+            di["LINK"]= article.find("a", {"rel": True}).get("href")
         except:
-            di["LINK"]= 'none'
+            di["LINK"]= ''
         try : 
-            di["up_nb"] = article.find("span",{"class": "upvotes"}).get_text()
+            di["UP_NB"] = article.find("span",{"class": "upvotes"}).get_text().strip()
         except:
-            di["up_nb"] = 0
+            di["UP_NB"] = 0
         try:
-            di["down_nb"] = article.find("span",{"class": "downvotes"}).get_text()
+            di["DOWN_NB"] = article.find("span",{"class": "downvotes"}).get_text().strip()
         except:
-            di["down_nb"]=0
-        commentary = article.find('a', text = re.compile('comment$'))
-        if commentary:
-            di["nb_of_comments"]= commentary.get_text()[0]
-        else:
-            di["nb_of_comments"] = 0
+            di["DOWN_NB"]=0
+        try:
+            di["NB_OF_COMMENTS"]= article.find('a', text = re.compile('comment$')).get_text()[0].strip()
+        except:
+            di["NB_OF_COMMENTS"] = 0
         articles_page.append(di)
+        
+        di["PATH_HTML"] = str(htm) + ".html"
+        di["FILE_URLS_FROM_HTML"] = str(htm) +".txt"
+        htm +=1
 
-    articles_page.pop() # removing last line (always return none)
-
-    with open(fichier,"a") as f2:
-        writer = csv.DictWriter(f2, fieldnames=['TITLE', 'AUTHOR', 'LINK', 'up_nb','down_nb',"nb_of_comments"])
-        for article in articles_page:
-            writer.writerow(article)
-
-
-def get_all_urls(start_url,urls = [], stop = 300, c = 0):
-    """ 
-    Given a specific "latest news echo js" URl, this function crawls inside all 
-    "latest news echo js page" (to a given limit)"""
-    page = requests.get(start_url)
-    splitted_url = safe_urlsplit(start_url)
-    soup = BeautifulSoup(page.content, 'html.parser')
-    more = soup.find("a", {"class": "more"})
-    if more and c <= stop:
-        c+=30
-        path = more['href'] 
-        url = splitted_url.scheme + "://"+ splitted_url.netloc + path + splitted_url.query + splitted_url.fragment
+    return articles_page
+  
+def urls_generator(number):
+    """ This function is used to generate a specific number of urls of echojs news page""" 
+    urls =[]
+    for i in range(number):
+        path = "/latest/"+str(30*i)
+        url = urljoin('https://www.echojs.com',path)
         urls.append(url)
-        return get_all_urls(url,urls = urls,c=c)
-    else:
-        return urls
+    return urls
 
-start_url = "https://www.echojs.com/latest/30"
-urls = get_all_urls(start_url)
 
-with open(fichier,"w") as f2:
-    writer = csv.DictWriter(f2, fieldnames=['TITLE', 'AUTHOR', 'LINK', 'up_nb','down_nb',"nb_of_comments"])
+tx = 0 
+### Scraping and writing information on articles that can be found on echojs news page into a csv file 
+with open("/home/ptl7123/Bureau/scraping_exo/test.csv","w") as f2:
+    writer = csv.DictWriter(f2, fieldnames=['TITLE', 'AUTHOR', 'LINK', 'UP_NB','DOWN_NB',"NB_OF_COMMENTS","PATH_HTML","FILE_URLS_FROM_HTML"])
     writer.writeheader()
-
-for url in urls:
-    articles(url,"test.csv")
+    urls = urls_generator(10)
+    for url in urls:
+        articles_page = articles(url)
+        for article in tqdm(articles_page):
+            writer.writerow(article)
+            #scraping html content that can be found following the link of the article
+            if is_url(article['LINK']):
+                f2 = open('/home/ptl7123/Bureau/scraping_exo/code_html/'+ article["PATH_HTML"], "w") # changer le nom (hash : ND5, hashlib) (ou fonction bijective)
+                time.sleep(0.3)
+                try:
+                    page = requests.get(ensure_protocol(article['LINK']))
+                    html = BeautifulSoup(page.content, 'lxml')
+                    f2.write(html.prettify())
+                    #scraping URLS that can be found within the html content found following the link of the article
+                    f3 = open('/home/ptl7123/Bureau/scraping_exo/url_html/'+str(tx)+".txt","w")
+                    tx +=1
+                    try :
+                        urls = urls_from_text(html.get_text())
+                        for url in urls:
+                            f3.write(url + "\n")
+                    except:
+                        f3.write("pas d'urls dans ce contenu html")
+                    
+                except:
+                    f2.write(article['LINK'] + "\n" + "site impossible à request")
+                
+        

@@ -4,16 +4,18 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from ural.utils import  safe_urlsplit
-from ural import normalize_url, is_url, ensure_protocol,urls_from_text
-from urllib.parse import urljoin
-htm = 0 
+from ural import normalize_url, is_url, ensure_protocol, urls_from_html, urls_from_text
+from urllib.parse import urljoin, urlsplit
+from tqdm import tqdm
+HTM = 0 
+NB_LIENS = 0
 
 def articles(url):
     """
     Given an echojs news page, this function collect and write specific informations
     about all articles that can be found on this page
     """
-    global htm
+    global HTM
     #### collecting the HTML
     time.sleep(0.3)
     page = requests.get(url)
@@ -51,51 +53,54 @@ def articles(url):
             di["NB_OF_COMMENTS"] = 0
         articles_page.append(di)
         
-        di["PATH_HTML"] = str(htm) + ".html"
-        di["FILE_URLS_FROM_HTML"] = str(htm) +".txt"
-        htm +=1
+        di["PATH_HTML"] = str(HTM) + ".html"
+        di["FILE_URLS_FROM_HTML"] = str(HTM) +".txt"
+        HTM +=1
 
     return articles_page
   
 def urls_generator(number):
     """ This function is used to generate a specific number of urls of echojs news page""" 
-    urls =[]
     for i in range(number):
         path = "/latest/"+str(30*i)
         url = urljoin('https://www.echojs.com',path)
-        urls.append(url)
-    return urls
+        yield url
 
 
-tx = 0 
+tx,td  = 0,0 
 ### Scraping and writing information on articles that can be found on echojs news page into a csv file 
-with open("/home/ptl7123/Bureau/scraping_exo/test.csv","w") as f2:
-    writer = csv.DictWriter(f2, fieldnames=['TITLE', 'AUTHOR', 'LINK', 'UP_NB','DOWN_NB',"NB_OF_COMMENTS","PATH_HTML","FILE_URLS_FROM_HTML"])
+with open("/home/ptl7123/Bureau/scraping_exo/test.csv","w") as article_file:
+    writer = csv.DictWriter(article_file, fieldnames=['TITLE', 'AUTHOR', 'LINK', 'UP_NB','DOWN_NB',"NB_OF_COMMENTS","PATH_HTML","FILE_URLS_FROM_HTML"])
     writer.writeheader()
     urls = urls_generator(10)
     for url in urls:
         articles_page = articles(url)
+        print("traitement de l'url :{}".format(url))
         for article in tqdm(articles_page):
             writer.writerow(article)
             #scraping html content that can be found following the link of the article
-            if is_url(article['LINK']):
-                f2 = open('/home/ptl7123/Bureau/scraping_exo/code_html/'+ article["PATH_HTML"], "w") # changer le nom (hash : ND5, hashlib) (ou fonction bijective)
-                time.sleep(0.3)
-                try:
-                    page = requests.get(ensure_protocol(article['LINK']))
-                    html = BeautifulSoup(page.content, 'lxml')
-                    f2.write(html.prettify())
+            url1 = urlsplit(article['LINK']).geturl()
+            if is_url(url1):
+                with open('/home/ptl7123/Bureau/scraping_exo/code_html_couche1/'+ article["PATH_HTML"], "w") as html_file1: 
+                    time.sleep(0.3)
+                    page = requests.get(ensure_protocol(url1))
+                    html = BeautifulSoup(page.content, "html.parser")
+                    html_file1.write(html.prettify())
+                    url_in = set()
                     #scraping URLS that can be found within the html content found following the link of the article
-                    f3 = open('/home/ptl7123/Bureau/scraping_exo/url_html/'+str(tx)+".txt","w")
-                    tx +=1
-                    try :
-                        urls = urls_from_text(html.get_text())
+                    with open('/home/ptl7123/Bureau/scraping_exo/url_html_couche1/{}.csv'.format(tx),"w") as url_html_file1:
+                        writer2 = csv.DictWriter(url_html_file1, fieldnames=["FROM_HTML","URL","TO_HTML"])
+                        writer2.writeheader()
+                        tx += 1
+                        urls = urls_from_text(html.prettify())
                         for url in urls:
-                            f3.write(url + "\n")
-                    except:
-                        f3.write("pas d'urls dans ce contenu html")
-                    
-                except:
-                    f2.write(article['LINK'] + "\n" + "site impossible à request")
-                
+                            if url not in url_in:
+                                NB_LIENS +=1
+                                url_in.add(url)
+                                url = urlsplit(url)
+                                td +=1
+                                writer2.writerow({"FROM_HTML":article["PATH_HTML"],"URL":url.geturl(), "TO_HTML": str(td)+".html"})
+
+
+print(NB_LIENS)   
         

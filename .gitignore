@@ -10,3 +10,6 @@ url_html/
 code_html/
 urlhtml
 urlhtml.py
+code_html_couche1/
+code_html_couche2/
+filtrage_url.py
